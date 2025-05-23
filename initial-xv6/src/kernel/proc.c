@@ -7,15 +7,19 @@
 #include "defs.h"
 
 #ifdef SCHEDULER_MLFQ
+Queue q_main[4];
 void initQueue(Queue *q) {
     q->front = -1;
     q->rear = -1;
     q->size = 0;
+    for (int i = 0; i < NPROC; i++) {
+      q->procs[i] = 0;
+    }
 }
 
 // Check if the queue is full
 int isFull(Queue *q) {
-    if ((q->front == 0 && q->rear == NPROC - 1) || (q->rear == (q->front - 1) % (NPROC - 1))) {
+    if (q->size >= NPROC) {
         return 1;
     }
     return 0;
@@ -23,7 +27,7 @@ int isFull(Queue *q) {
 
 // Check if the queue is empty
 int isEmpty(Queue *q) {
-    if (q->front == -1) {
+    if (q->size == 0) {
         return 1;
     }
     return 0;
@@ -32,7 +36,7 @@ int isEmpty(Queue *q) {
 // Add an element to the queue
 void enqueue(Queue *q, struct proc *process) {
     if (isFull(q)) {
-        printf("Queue is full!\n");
+        panic("Queue is full!\n");
         return;
     }
     if (q->front == -1) { // First element insertion
@@ -42,6 +46,7 @@ void enqueue(Queue *q, struct proc *process) {
     } else {
         q->rear++;
     }
+    process->queue_no = q - q_main;
     q->procs[q->rear] = process;
     q->size++;
 }
@@ -49,7 +54,7 @@ void enqueue(Queue *q, struct proc *process) {
 // Remove an element from the queue
 struct proc *dequeue(Queue *q) {
     if (isEmpty(q)) {
-        printf("Queue is empty!\n");
+        panic("Queue is empty!\n");
         return 0;
     }
 
@@ -98,8 +103,6 @@ void display(Queue *q) {
     printf("\n");
 }
 
-// Queue q[0], q1, q2, q3;
-// Queue q[] = {q[0], q1, q2, q3};
 #endif
 
 struct cpu cpus[NCPU];
@@ -280,16 +283,8 @@ found:
   #endif
   
   #ifdef SCHEDULER_MLFQ
-    p->q0_rtime = 0;
-    p->q1_rtime = 0;
-    p->q2_rtime = 0;
-    p->q3_rtime = 0;
-    if (isFull(&q[0])) {
-      panic("More number of processes than expected");
-    }
-    else {
-      enqueue(&q[0], p);
-    }
+    p->q_rtime = 0;
+    p->queue_no = -1;
   #endif
   return p;
 }
@@ -717,76 +712,67 @@ int higher_priority(int priority) {
   // If higher priority process is found, return true
   // else return false
   for (int i = 0; i < priority; i++) {
-    if (!isEmpty(&q[i])) {
+    if (!isEmpty(&q_main[i])) {
       return 1;
     }
   }
   return 0;
 }
 
-void rr_sched2(Queue q, int priority) {
+void rr_sched2(Queue *q, int priority) {
   struct cpu *c = mycpu();
 
   c->proc = 0;
-  for (;;)
-  {
-    // Avoid deadlock by ensuring that devices can interrupt.
-    intr_on();
-    struct proc *p;
-    while (!isEmpty(&q))
-    {
-      p = getFront(&q);
-      acquire(&p->lock);
-      if (p->state == RUNNABLE)
-      {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
-
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-      }
-      release(&p->lock);
-      if (higher_priority(priority)) {
-        break;
-      }
+  // Avoid deadlock by ensuring that devices can interrupt.
+  intr_on();
+  struct proc *p = 0;
+  for (int i = 0; i < q->size; i++) {
+    p = q->procs[i];
+    if (p && p->state == RUNNABLE) {
+      break;
     }
-    return;
   }
+  if (p && p->state != RUNNABLE) return;
+  acquire(&p->lock);
+  if (p->state == RUNNABLE)
+  {
+    // Switch to chosen process.  It is the process's job
+    // to release its lock and then reacquire it
+    // before jumping back to us.
+    p->state = RUNNING;
+    c->proc = p;
+    swtch(&c->context, &p->context);
+
+    // Process is done running for now.
+    // It should have changed its p->state before coming back.
+    c->proc = 0;
+  }
+  release(&p->lock);
 }
 
 void mlfq_sched() {
-  // initialize all the priority queues
-  initQueue(&q[0]);
-  initQueue(&q[1]);
-  initQueue(&q[2]);
-  initQueue(&q[3]);
-
+  struct proc *p = 0;
+  for (p = proc; p < &proc[NPROC]; p++)
+  {
+    if (p && p->state == RUNNABLE)
+    {
+      enqueue(&q_main[0], p);
+    }
+  }
   for (;;) {
-    if (isEmpty(&q[0])) {
-      if (isEmpty(&q[1])) {
-        if (isEmpty(&q[2])) {
-          if (isEmpty(&q[3])) {
-            panic("All queues are empty");
-          }
-          else {
-            rr_sched2(q[3], 3);
-          }
-        }
-        else {
-          rr_sched2(q[2], 2);
-        }
-      }
-      else {
-        rr_sched2(q[1], 1);
+    for (int i = 0; i < NPROC; i++) {
+      p = proc[i];
+      if (p && p->queue_no == -1 && p->state == RUNNABLE) {
+        enqueue(&q[0], p);
       }
     }
-    else {
-      rr_sched2(q[0], 0);
+    for (int i = 0; i < 4; i++) {
+      for (int j = 0; j < q_main[i].size; j++) {
+        if (q_main[i].procs[j]->state == RUNNABLE) {
+          rr_sched2(&q_main[i], i);
+          break;
+        }
+      }
     }
   }
 }
@@ -802,12 +788,16 @@ void scheduler(void)
       lbs_sched();
     #elif defined(SCHEDULER_MLFQ)
       // mlfq implementation here
+      initQueue(&q_main[0]);
+      initQueue(&q_main[1]);
+      initQueue(&q_main[2]);
+      initQueue(&q_main[3]);
       mlfq_sched();
     #else
       panic("No scheduler defined");
     #endif
-    }
   }
+}
 
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores

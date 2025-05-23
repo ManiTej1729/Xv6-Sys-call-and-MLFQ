@@ -137,10 +137,7 @@ struct proc
 
   // for MLFQ
   int queue_no;
-  int q0_rtime;
-  int q1_rtime;  // qi_rtime represents the number of ticks that particular process ran in the queue qi
-  int q2_rtime;
-  int q3_rtime;
+  int q_rtime;
 };
 
 #ifdef SCHEDULER_MLFQ
@@ -151,7 +148,7 @@ typedef struct {
     int size;
 } Queue;
 
-extern Queue q[4];
+extern Queue q_main[4];
 void initQueue(Queue *q);
 int isFull(Queue *q);
 int isEmpty(Queue *q);

@@ -14,6 +14,8 @@ extern char trampoline[], uservec[], userret[];
 // in kernelvec.S, calls kerneltrap().
 void kernelvec();
 
+int timeslices = {1, 4, 8, 16};
+
 extern int devintr();
 
 void trapinit(void)
@@ -82,72 +84,39 @@ void usertrap(void)
   if (which_dev == 2) {
     #ifdef SCHEDULER_MLFQ
       // update the process's runtime
-      if (p->queue_no == 0) {
-        if (p->state == RUNNING) {
-          p->q0_rtime++;
-          if (p->q0_rtime > 0) {
-            dequeue(&q[0]);
-            enqueue(&q[1], p);
-            p->queue_no = 1;
-            p->q0_rtime = 0;
-          }
-        }
-      }
-      else if (p->queue_no == 1) {
-        if (p->state == RUNNING) {
-          p->q1_rtime++;
-          if (p->q1_rtime > 3) {
-            dequeue(&q[1]);
-            enqueue(&q[2], p);
-            p->queue_no = 2;
-            p->q1_rtime = 0;
-          }
-        }
-      }
-      else if (p->queue_no == 2) {
-        if (p->state == RUNNING) {
-          p->q2_rtime++;
-          if (p->q2_rtime > 7) {
-            dequeue(&q[2]);
-            enqueue(&q[3], p);
-            p->queue_no = 3;
-            p->q2_rtime = 0;
-          }
-        }
-      }
-      else if (p->queue_no == 3) {
-        if (p->state == RUNNING) {
-          p->q3_rtime++;
-          if (p->q3_rtime > 15) {
-            dequeue(&q[3]);
-            enqueue(&q[0], p);
-            p->queue_no = 0;
-            p->q3_rtime = 0;
-          }
+      if (p->state == RUNNING) {
+        p->q_rtime++;
+        int level = p->queue_no;
+        if (p->q_rtime >= timeslices[level]) {
+          dequeue(&q_main[level]);
+          int new_level = level < 3 ? level + 1 : 3;
+          enqueue(&q_main[new_level], p);
+          p->queue_no = new_level;
+          p->q_rtime = 0;
         }
       }
       
       if (ticks % 48 == 0) {
         // implement priority boost
         struct proc *p1;
-        while (!isEmpty(&q[1])) {
-          p1 = dequeue(&q[1]);
+        while (!isEmpty(&q_main[1])) {
+          p1 = dequeue(&q_main[1]);
           if (p) {
-            enqueue(&q[0], p1);
+            enqueue(&q_main[0], p1);
           }
         }
 
-        while (!isEmpty(&q[2])) {
-          p1 = dequeue(&q[2]);
+        while (!isEmpty(&q_main[2])) {
+          p1 = dequeue(&q_main[2]);
           if (p) {
-            enqueue(&q[0], p1);
+            enqueue(&q_main[0], p1);
           }
         }
 
-        while (!isEmpty(&q[3])) {
-          p1 = dequeue(&q[3]);
+        while (!isEmpty(&q_main[3])) {
+          p1 = dequeue(&q_main[3]);
           if (p) {
-            enqueue(&q[0], p1);
+            enqueue(&q_main[0], p1);
           }
         }
       }
