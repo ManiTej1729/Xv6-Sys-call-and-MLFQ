@@ -153,7 +153,8 @@ void initQueue(Queue *q);
 int isFull(Queue *q);
 int isEmpty(Queue *q);
 void enqueue(Queue *q, struct proc *process);
-struct proc *dequeue(Queue *q);
+void dequeue(Queue *q, struct proc *p);
+struct proc *getFront(Queue *q);
 void display(Queue *q);
 #endif
 

@@ -14,7 +14,7 @@ extern char trampoline[], uservec[], userret[];
 // in kernelvec.S, calls kerneltrap().
 void kernelvec();
 
-int timeslices = {1, 4, 8, 16};
+int timeslices[] = {1, 4, 8, 16};
 
 extern int devintr();
 
@@ -88,7 +88,7 @@ void usertrap(void)
         p->q_rtime++;
         int level = p->queue_no;
         if (p->q_rtime >= timeslices[level]) {
-          dequeue(&q_main[level]);
+          dequeue(&q_main[level], p);
           int new_level = level < 3 ? level + 1 : 3;
           enqueue(&q_main[new_level], p);
           p->queue_no = new_level;
@@ -100,22 +100,25 @@ void usertrap(void)
         // implement priority boost
         struct proc *p1;
         while (!isEmpty(&q_main[1])) {
-          p1 = dequeue(&q_main[1]);
-          if (p) {
+          p1 = getFront(&q_main[1]);
+          if (p1) {
+            dequeue(&q_main[1], p1);
             enqueue(&q_main[0], p1);
           }
         }
 
         while (!isEmpty(&q_main[2])) {
-          p1 = dequeue(&q_main[2]);
-          if (p) {
+          p1 = getFront(&q_main[2]);
+          if (p1) {
+            dequeue(&q_main[2], p1);
             enqueue(&q_main[0], p1);
           }
         }
 
         while (!isEmpty(&q_main[3])) {
-          p1 = dequeue(&q_main[3]);
-          if (p) {
+          p1 = getFront(&q_main[3]);
+          if (p1) {
+            dequeue(&q_main[3], p1);
             enqueue(&q_main[0], p1);
           }
         }

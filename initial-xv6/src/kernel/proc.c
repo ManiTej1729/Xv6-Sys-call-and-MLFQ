@@ -9,67 +9,63 @@
 #ifdef SCHEDULER_MLFQ
 Queue q_main[4];
 void initQueue(Queue *q) {
-    q->front = -1;
-    q->rear = -1;
-    q->size = 0;
-    for (int i = 0; i < NPROC; i++) {
-      q->procs[i] = 0;
-    }
+  q->front = -1;
+  q->rear = -1;
+  q->size = 0;
+  for (int i = 0; i < NPROC; i++) {
+    q->procs[i] = 0;
+  }
 }
 
 // Check if the queue is full
 int isFull(Queue *q) {
-    if (q->size >= NPROC) {
-        return 1;
-    }
-    return 0;
+  if (q->size >= NPROC) {
+    return 1;
+  }
+  return 0;
 }
 
 // Check if the queue is empty
 int isEmpty(Queue *q) {
-    if (q->size == 0) {
-        return 1;
-    }
-    return 0;
+  if (q->size == 0) {
+    return 1;
+  }
+  return 0;
 }
 
 // Add an element to the queue
 void enqueue(Queue *q, struct proc *process) {
-    if (isFull(q)) {
-        panic("Queue is full!\n");
-        return;
-    }
-    if (q->front == -1) { // First element insertion
-        q->front = q->rear = 0;
-    } else if (q->rear == NPROC - 1 && q->front != 0) { // Wrap-around case
-        q->rear = 0;
-    } else {
-        q->rear++;
-    }
-    process->queue_no = q - q_main;
-    q->procs[q->rear] = process;
-    q->size++;
+  if (isFull(q)) {
+    panic("Queue is full!\n");
+    return;
+  }
+  if (q->front == -1) { // First element insertion
+    q->front = q->rear = 0;
+  } else {
+    q->rear++;
+  }
+  process->queue_no = q - q_main;
+  q->procs[q->rear] = process;
+  q->size++;
 }
 
 // Remove an element from the queue
-struct proc *dequeue(Queue *q) {
-    if (isEmpty(q)) {
-        panic("Queue is empty!\n");
-        return 0;
+void dequeue(Queue *q, struct proc *p) {
+  if (isEmpty(q)) {
+    panic("Queue is empty!\n");
+    return;
+  }
+
+  for (int i = 0; i < q->size; i++) {
+    if (q->procs[i] == p) {
+      for (int j = i; j < q->size - 1; j++) {
+        q->procs[j] = q->procs[j + 1];
+      }
+      break;
     }
-
-    struct proc *data = q->procs[q->front];
-    q->procs[q->front] = 0; // Optional: clear the spot
-
-    if (q->front == q->rear) { // Queue is now empty
-        q->front = q->rear = -1;
-    } else if (q->front == NPROC - 1) { // Wrap-around case
-        q->front = 0;
-    } else {
-        q->front++;
-    }
-
-    return data;
+  }
+  q->procs[q->rear--] = 0;
+  q->size--;
 }
 
 struct proc *getFront(Queue *q) {
@@ -719,12 +715,15 @@ int higher_priority(int priority) {
   return 0;
 }
 
-void rr_sched2(Queue *q, int priority) {
+void rr_sched2(int priority) {
   struct cpu *c = mycpu();
+  Queue *q = &q_main[priority];
 
   c->proc = 0;
   // Avoid deadlock by ensuring that devices can interrupt.
   intr_on();
+  
+  // find the topmost RUNNABLE process in the queue
   struct proc *p = 0;
   for (int i = 0; i < q->size; i++) {
     p = q->procs[i];
@@ -733,46 +732,47 @@ void rr_sched2(Queue *q, int priority) {
     }
   }
   if (p && p->state != RUNNABLE) return;
+  
+  // execute that process
   acquire(&p->lock);
-  if (p->state == RUNNABLE)
-  {
-    // Switch to chosen process.  It is the process's job
-    // to release its lock and then reacquire it
-    // before jumping back to us.
-    p->state = RUNNING;
-    c->proc = p;
-    swtch(&c->context, &p->context);
-
-    // Process is done running for now.
-    // It should have changed its p->state before coming back.
-    c->proc = 0;
-  }
+  p->state = RUNNING;
+  c->proc = p;
+  swtch(&c->context, &p->context);
+  c->proc = 0;
   release(&p->lock);
 }
 
 void mlfq_sched() {
   struct proc *p = 0;
-  for (p = proc; p < &proc[NPROC]; p++)
-  {
-    if (p && p->state == RUNNABLE)
-    {
+  // adding initial processes in proc to queues
+  for (p = proc; p < &proc[NPROC]; p++) {
+    if (p && p->state == RUNNABLE) {
       enqueue(&q_main[0], p);
     }
   }
+
+  int breakflag;
+
   for (;;) {
+    // checking for newly created processes
     for (int i = 0; i < NPROC; i++) {
-      p = proc[i];
+      p = &proc[i];
       if (p && p->queue_no == -1 && p->state == RUNNABLE) {
-        enqueue(&q[0], p);
+        enqueue(&q_main[0], p);
       }
     }
+
+    // selecting the highest priority queue with atlest one RUNNABLE process
     for (int i = 0; i < 4; i++) {
+      breakflag = 0;
       for (int j = 0; j < q_main[i].size; j++) {
         if (q_main[i].procs[j]->state == RUNNABLE) {
-          rr_sched2(&q_main[i], i);
+          rr_sched2(i);
+          breakflag = 1;
           break;
         }
       }
+      if (breakflag) break;
     }
   }
 }
@@ -781,7 +781,7 @@ void scheduler(void)
 {
   for (;;) {
     #ifdef SCHEDULER_RR
-    // rr implementation here
+      // rr implementation here
       rr_sched();
     #elif defined(SCHEDULER_LBS)
       // lbs impleentation here
